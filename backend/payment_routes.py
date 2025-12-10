@@ -70,7 +70,8 @@ async def create_payment(data: dict):
             }
         ],
         "payer": {"email": user_email},
-        "notification_url": "https://192.99.110.188:8000/webhook",
+        "notification_url": "https://maritivavpn.shop/webhook",
+
         "back_urls": {
             "success": "https://seusite.com/sucesso",
             "failure": "https://seusite.com/erro"
@@ -89,7 +90,8 @@ async def webhook(request: Request):
     body = await request.json()
     print("Webhook recebido:", body)
 
-    if body.get("type") == "payment":
+    if body.get("topic") == "payment":
+
         payment_id = body["data"]["id"]
         info = mp.payment().get(payment_id)
 
