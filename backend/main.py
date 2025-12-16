@@ -13,6 +13,13 @@ from ehi_generator import generate_ehi
 from email_sender import send_email
 
 from payment_routes import router as payment_router
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+
+
+app.mount("/js", StaticFiles(directory="js"), name="js")
+app.mount("/imagens", StaticFiles(directory="imagens"), name="imagens")
 
 # ------------------------------------------------------
 # CONFIG JWT
