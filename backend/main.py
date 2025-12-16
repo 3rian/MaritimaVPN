@@ -1,19 +1,16 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, Response, Header
 from sqlalchemy.orm import Session
-from database import Base, engine, SessionLocal
-from models import User, VPNAccount, Trial
-from payment_routes import router as payment_router
+from datetime import datetime, timedelta
+from jose import jwt, JWTError
+import random, string, base64, os
 
-from schemas import (
-    UserCreate,
-    UserLogin,
-    CreatePlan,
-    TrialRequest,
-    RenewPlan
-)
+from database import Base, engine, SessionLocal
+from models import User, VPNAccount
+from schemas import UserCreate, UserLogin, CreatePlan
 from auth import hash_password, verify_password
 from ssh_connector import create_ssh_user, delete_ssh_user
 from ehi_generator import generate_ehi
+<<<<<<< HEAD
 from email_sender import send_ehi_email
 from datetime import datetime, timedelta
 import random
@@ -24,57 +21,42 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 app.include_router(payment_router)
+=======
+from email_sender import send_email
+
+from payment_routes import router as payment_router
+>>>>>>> 3e4097c57893cccff009cf91df1a0e3c187d1013
 
 # ------------------------------------------------------
-# Função para obter sessão do banco
+# CONFIG JWT
 # ------------------------------------------------------
-def db():
-    database = SessionLocal()
+SECRET_KEY = os.getenv("JWT_SECRET", "TEST-2636876912816804-120619-ecc30317c9b6194ef03217949a8bde44-149920841")
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_HOURS = 24
+
+# ------------------------------------------------------
+# APP
+# ------------------------------------------------------
+Base.metadata.create_all(bind=engine)
+app = FastAPI()
+
+# 👉 inclui PIX / webhook aqui
+app.include_router(payment_router)
+
+# ------------------------------------------------------
+# DB
+# ------------------------------------------------------
+def get_db():
+    db = SessionLocal()
     try:
-        yield database
+        yield db
     finally:
-        database.close()
-
-
-# ------------------------------------------------------
-# CADASTRO
-# ------------------------------------------------------
-@app.post("/register")
-def register(user: UserCreate, db: Session = Depends(db)):
-    hashed = hash_password(user.password)
-
-    new_user = User(
-        name=user.name,
-        email=user.email,
-        password=hashed,
-        trial_used=False
-    )
-
-    db.add(new_user)
-    db.commit()
-
-    return {"message": "Usuário criado com sucesso"}
-
+        db.close()
 
 # ------------------------------------------------------
-# LOGIN
+# JWT UTILS
 # ------------------------------------------------------
-@app.post("/login")
-def login(user: UserLogin, db: Session = Depends(db)):
-    db_user = db.query(User).filter(User.email == user.email).first()
-
-    if not db_user or not verify_password(user.password, db_user.password):
-        return {"error": "Credenciais inválidas"}
-
-    return {
-        "message": "Login autorizado",
-        "user_id": db_user.id
-    }
-
-
-# ------------------------------------------------------
-# CRIAR PLANO (15 OU 30 DIAS)
-# ------------------------------------------------------
+<<<<<<< HEAD
 @app.post("/create-plan")
 def create_plan(data: CreatePlan, db: Session = Depends(db)):
 
@@ -132,116 +114,71 @@ Anexo segue seu arquivo .EHI para uso.
         "expires": expires,
         "ehi": ehi_file,
         "ssh_result": ssh_result
+=======
+def create_token(user_id: int):
+    payload = {
+        "sub": str(user_id),
+        "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
+>>>>>>> 3e4097c57893cccff009cf91df1a0e3c187d1013
     }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+def get_current_user(
+    authorization: str = Header(...),
+    db: Session = Depends(get_db)
+):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Token inválido")
 
-# ------------------------------------------------------
-# CRIAR TRIAL – 3H
-# ------------------------------------------------------
-@app.post("/trial")
-def create_trial(data: TrialRequest, db: Session = Depends(db)):
+    token = authorization.replace("Bearer ", "")
 
-    user = db.query(User).filter(User.id == data.user_id).first()
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload["sub"])
+    except JWTError:
+        raise HTTPException(401, "Token expirado ou inválido")
 
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        return {"error": "Usuário não encontrado"}
+        raise HTTPException(401, "Usuário não encontrado")
 
-    if user.trial_used:
-        return {"error": "O usuário já utilizou o teste grátis"}
-
-    username = f"trial{user.id}"
-    password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-
-    ssh_result = create_ssh_user(username, password, 0.125)  # 3 horas
-
-    now = datetime.now()
-    expires = now + timedelta(hours=3)
-
-    new_trial = Trial(
-        user_id=user.id,
-        ssh_user=username,
-        ssh_pass=password,
-        created_at=now.isoformat(),
-        expires_at=expires.isoformat(),
-        active=True
-    )
-
-    db.add(new_trial)
-    user.trial_used = True
-    db.commit()
-
-    send_email(
-        user.email,
-        "Seu Teste Grátis Está Ativo!",
-        f"""
-Usuário SSH: {username}
-Senha SSH: {password}
-Expira em: {expires}
-        """
-    )
-
-    return {
-        "message": "Teste de 3 horas criado com sucesso!",
-        "username": username,
-        "password": password,
-        "expires": expires,
-        "ssh_result": ssh_result
-    }
-
+    return user
 
 # ------------------------------------------------------
-# CANCELAR PLANO
+# REGISTER
 # ------------------------------------------------------
-@app.post("/cancel-plan")
-def cancel_plan(account_id: int, db: Session = Depends(db)):
+@app.post("/api/register")
+def register(user: UserCreate, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == user.email).first():
+        raise HTTPException(400, "E-mail já cadastrado")
 
-    acc = db.query(VPNAccount).filter(VPNAccount.id == account_id).first()
-
-    if not acc:
-        return {"error": "Conta não encontrada"}
-
-    delete_ssh_user(acc.username)
-
-    db.delete(acc)
-    db.commit()
-
-    return {"message": "Plano cancelado com sucesso"}
-
-
-# ------------------------------------------------------
-# RENOVAR PLANO – N DIAS
-# ------------------------------------------------------
-@app.post("/renew-plan")
-def renew_plan(data: RenewPlan, db: Session = Depends(db)):
-
-    acc = db.query(VPNAccount).filter(VPNAccount.id == data.account_id).first()
-
-    if not acc:
-        return {"error": "Plano não encontrado"}
-
+<<<<<<< HEAD
     new_expires = datetime.now() + timedelta(days=data.days)
     new_ehi = generate_ehi(acc.username, acc.password, acc.plan)
     acc.expires_at = new_expires.isoformat()
     acc.ehi_file = new_ehi
+=======
+    new_user = User(
+        name=user.name,
+        email=user.email,
+        password=hash_password(user.password),
+        trial_used=False
+    )
+>>>>>>> 3e4097c57893cccff009cf91df1a0e3c187d1013
 
+    db.add(new_user)
     db.commit()
 
-    return {
-        "message": "Plano renovado com sucesso!",
-        "expires": new_expires,
-        "ehi": new_ehi
-    }
-
+    return {"message": "Conta criada com sucesso"}
 
 # ------------------------------------------------------
-# VERIFICAR PLANOS QUE EXPIRAM EM 2 DIAS
+# LOGIN
 # ------------------------------------------------------
-@app.get("/check-expirations")
-def check_expirations(db: Session = Depends(db)):
+@app.post("/api/login")
+def login(data: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
 
-    today = datetime.now()
-    limit = today + timedelta(days=2)
-
+<<<<<<< HEAD
     accounts = db.query(VPNAccount).all()
 
     notified_count = 0
@@ -288,3 +225,9 @@ def get_plans(user_id: int, db: Session = Depends(db)):
         for acc in accounts
     ]
 
+=======
+    if not user or not verify_password(data.password, user.password):
+        raise HTTPException(401, "Credenciais inválidas")
+
+    token = create_token
+>>>>>>> 3e4097c57893cccff009cf91df1a0e3c187d1013
