@@ -30,7 +30,7 @@ from payment_routes import router as payment_router
 # ------------------------------------------------------
 # CONFIG JWT
 # ------------------------------------------------------
-SECRET_KEY = os.getenv("JWT_SECRET", "TEST-2636876912816804-120619-ecc30317c9b6194ef03217949a8bde44-149920841")
+SECRET_KEY = os.getenv("JWT_SECRET", "MUDE-ISSO-PARA-UM-SEGREDO-GIGANTE")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
 
