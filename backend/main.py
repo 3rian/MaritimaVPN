@@ -14,7 +14,7 @@ from schemas import (
 from auth import hash_password, verify_password
 from ssh_connector import create_ssh_user, delete_ssh_user
 from ehi_generator import generate_ehi
-from email_sender import send_email
+from email_sender import send_ehi_email
 from datetime import datetime, timedelta
 import random
 import string
@@ -24,8 +24,6 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 app.include_router(payment_router)
-
-
 
 # ------------------------------------------------------
 # Função para obter sessão do banco
@@ -91,7 +89,7 @@ def create_plan(data: CreatePlan, db: Session = Depends(db)):
 
     expires = datetime.now() + timedelta(days=plan_days)
 
-    # Gera o arquivo EHI (texto criptografado/base64 ou conteúdo puro)
+    # Gera o arquivo EHI
     ehi_file = generate_ehi(username, password, data.plan)
 
     # Salva no banco
@@ -108,7 +106,7 @@ def create_plan(data: CreatePlan, db: Session = Depends(db)):
     db.add(new_acc)
     db.commit()
 
-    # Envia ehi para o email REAL do cliente
+    # Envia ehi para o email do cliente
     user = db.query(User).filter(User.id == data.user_id).first()
     if user:
         send_email(
@@ -222,11 +220,7 @@ def renew_plan(data: RenewPlan, db: Session = Depends(db)):
         return {"error": "Plano não encontrado"}
 
     new_expires = datetime.now() + timedelta(days=data.days)
-
-    create_ssh_user(acc.username, acc.password, data.days)
-
-    new_ehi = generate_ehi(acc.username, acc.password, str(data.days))
-
+    new_ehi = generate_ehi(acc.username, acc.password, acc.plan)
     acc.expires_at = new_expires.isoformat()
     acc.ehi_file = new_ehi
 
@@ -258,7 +252,6 @@ def check_expirations(db: Session = Depends(db)):
         if today < expires <= limit and acc.notified_expire == 0:
 
             user = db.query(User).filter(User.id == acc.owner_id).first()
-
             if user:
                 send_email(
                     user.email,
@@ -294,3 +287,4 @@ def get_plans(user_id: int, db: Session = Depends(db)):
         }
         for acc in accounts
     ]
+

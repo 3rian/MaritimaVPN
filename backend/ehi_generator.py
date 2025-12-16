@@ -16,11 +16,14 @@ def generate_ehi(username: str, password: str, plan: str) -> str:
     proxy_ip = "104.17.71.206"
     proxy_port = "80"
 
+    # Preparar a string do nome do plano
+    plan_name = f"MaritimaVPN – Plano {plan} dias"
+
     # Template REAL de um .ehi simplificado (funcional para import no HTTP Injector)
     # Este formato segue a estrutura interna da versão 5.x
     ehi_content = f"""
-{
-    "settings": {
+{{
+    "settings": {{
         "proxy": {{
             "host": "{proxy_ip}",
             "port": {proxy_port}
@@ -39,14 +42,15 @@ def generate_ehi(username: str, password: str, plan: str) -> str:
         "vpn": false
     }},
     "meta": {{
-        "name": "MaritimaVPN – Plano {plan} dias",
+        "name": "{plan_name}",
         "author": "MaritimaVPN",
         "description": "Configuração automática gerada pelo sistema"
     }}
-
+}}
     """.strip()
 
     # Codifica o arquivo em Base64 como o HTTP Injector exige
     encoded = base64.b64encode(ehi_content.encode()).decode()
 
     return encoded
+
