@@ -1,296 +1,174 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, Response, Header
 from sqlalchemy.orm import Session
-from database import Base, engine, SessionLocal
-from models import User, VPNAccount, Trial
-from payment_routes import router as payment_router
+from datetime import datetime, timedelta
+from jose import jwt, JWTError
+import random, string, base64
 
-from schemas import (
-    UserCreate,
-    UserLogin,
-    CreatePlan,
-    TrialRequest,
-    RenewPlan
-)
+from database import Base, engine, SessionLocal
+from models import User, VPNAccount
+from schemas import UserCreate, UserLogin, CreatePlan, RenewPlan
 from auth import hash_password, verify_password
 from ssh_connector import create_ssh_user, delete_ssh_user
 from ehi_generator import generate_ehi
 from email_sender import send_email
-from datetime import datetime, timedelta
-import random
-import string
 
-# Criar tabelas no banco
+# ------------------------------------------------------
+# CONFIG JWT
+# ------------------------------------------------------
+SECRET_KEY = "MUDE-ISSO-PARA-ALGO-GIGANTE-E-SECRETO"
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_HOURS = 24
+
+# ------------------------------------------------------
+# APP
+# ------------------------------------------------------
 Base.metadata.create_all(bind=engine)
-
 app = FastAPI()
-app.include_router(payment_router)
-
-
 
 # ------------------------------------------------------
-# Função para obter sessão do banco
+# DB
 # ------------------------------------------------------
-def db():
-    database = SessionLocal()
+def get_db():
+    db = SessionLocal()
     try:
-        yield database
+        yield db
     finally:
-        database.close()
-
+        db.close()
 
 # ------------------------------------------------------
-# CADASTRO
+# JWT UTILS
+# ------------------------------------------------------
+def create_token(user_id: int):
+    payload = {
+        "sub": str(user_id),
+        "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(
+    authorization: str = Header(...),
+    db: Session = Depends(get_db)
+):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Token inválido")
+
+    token = authorization.replace("Bearer ", "")
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload["sub"])
+    except JWTError:
+        raise HTTPException(401, "Token expirado ou inválido")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(401, "Usuário não existe")
+
+    return user
+
+# ------------------------------------------------------
+# REGISTER
 # ------------------------------------------------------
 @app.post("/register")
-def register(user: UserCreate, db: Session = Depends(db)):
-    hashed = hash_password(user.password)
+def register(user: UserCreate, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == user.email).first():
+        raise HTTPException(400, "E-mail já cadastrado")
 
     new_user = User(
         name=user.name,
         email=user.email,
-        password=hashed,
+        password=hash_password(user.password),
         trial_used=False
     )
-
     db.add(new_user)
     db.commit()
-
-    return {"message": "Usuário criado com sucesso"}
-
+    return {"message": "Conta criada com sucesso"}
 
 # ------------------------------------------------------
 # LOGIN
 # ------------------------------------------------------
 @app.post("/login")
-def login(user: UserLogin, db: Session = Depends(db)):
-    db_user = db.query(User).filter(User.email == user.email).first()
+def login(data: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
 
-    if not db_user or not verify_password(user.password, db_user.password):
-        return {"error": "Credenciais inválidas"}
+    if not user or not verify_password(data.password, user.password):
+        raise HTTPException(401, "Credenciais inválidas")
+
+    token = create_token(user.id)
 
     return {
-        "message": "Login autorizado",
-        "user_id": db_user.id
+        "token": token,
+        "name": user.name
     }
 
-
 # ------------------------------------------------------
-# CRIAR PLANO (15 OU 30 DIAS)
+# CREATE PLAN
 # ------------------------------------------------------
 @app.post("/create-plan")
-def create_plan(data: CreatePlan, db: Session = Depends(db)):
+def create_plan(data: CreatePlan, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    days = int(data.plan_days)
+    if days not in [7, 15, 30]:
+        raise HTTPException(400, "Plano inválido")
 
-    plan_days = 30 if data.plan == "30" else 15
-
-    # Gera username único
-    username = f"user{data.user_id}{random.randint(100,999)}"
+    username = f"user{user.id}{random.randint(100,999)}"
     password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
-    # Cria usuário SSH no SSHPLUS
-    ssh_result = create_ssh_user(username, password, plan_days)
+    create_ssh_user(username, password, days)
 
-    expires = datetime.now() + timedelta(days=plan_days)
+    expires = datetime.now() + timedelta(days=days)
+    ehi = generate_ehi(username, password, str(days))
 
-    # Gera o arquivo EHI (texto criptografado/base64 ou conteúdo puro)
-    ehi_file = generate_ehi(username, password, data.plan)
-
-    # Salva no banco
-    new_acc = VPNAccount(
-        owner_id=data.user_id,
+    acc = VPNAccount(
+        owner_id=user.id,
         username=username,
         password=password,
-        plan=data.plan,
+        plan=str(days),
         expires_at=expires.isoformat(),
-        ehi_file=ehi_file,
+        ehi_file=ehi,
         notified_expire=0
     )
 
-    db.add(new_acc)
-    db.commit()
-
-    # Envia ehi para o email REAL do cliente
-    user = db.query(User).filter(User.id == data.user_id).first()
-    if user:
-        send_email(
-            user.email,
-            "Sua VPN está pronta!",
-            f"""
-Seu acesso VPN foi criado!
-
-Usuário SSH: {username}
-Senha SSH: {password}
-Validade: {expires}
-
-Anexo segue seu arquivo .EHI para uso.
-            """,
-            attachment=ehi_file,
-            filename=f"{username}.ehi"
-        )
-
-    return {
-        "message": "Plano criado com sucesso!",
-        "username": username,
-        "password": password,
-        "expires": expires,
-        "ehi": ehi_file,
-        "ssh_result": ssh_result
-    }
-
-
-# ------------------------------------------------------
-# CRIAR TRIAL – 3H
-# ------------------------------------------------------
-@app.post("/trial")
-def create_trial(data: TrialRequest, db: Session = Depends(db)):
-
-    user = db.query(User).filter(User.id == data.user_id).first()
-
-    if not user:
-        return {"error": "Usuário não encontrado"}
-
-    if user.trial_used:
-        return {"error": "O usuário já utilizou o teste grátis"}
-
-    username = f"trial{user.id}"
-    password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-
-    ssh_result = create_ssh_user(username, password, 0.125)  # 3 horas
-
-    now = datetime.now()
-    expires = now + timedelta(hours=3)
-
-    new_trial = Trial(
-        user_id=user.id,
-        ssh_user=username,
-        ssh_pass=password,
-        created_at=now.isoformat(),
-        expires_at=expires.isoformat(),
-        active=True
-    )
-
-    db.add(new_trial)
-    user.trial_used = True
+    db.add(acc)
     db.commit()
 
     send_email(
         user.email,
-        "Seu Teste Grátis Está Ativo!",
-        f"""
-Usuário SSH: {username}
-Senha SSH: {password}
-Expira em: {expires}
-        """
+        "VPN Criada",
+        f"Usuário: {username}\nValidade: {expires.strftime('%d/%m/%Y')}"
     )
 
-    return {
-        "message": "Teste de 3 horas criado com sucesso!",
-        "username": username,
-        "password": password,
-        "expires": expires,
-        "ssh_result": ssh_result
-    }
-
+    return {"message": "Plano criado com sucesso"}
 
 # ------------------------------------------------------
-# CANCELAR PLANO
+# GET PLANS
 # ------------------------------------------------------
-@app.post("/cancel-plan")
-def cancel_plan(account_id: int, db: Session = Depends(db)):
-
-    acc = db.query(VPNAccount).filter(VPNAccount.id == account_id).first()
-
-    if not acc:
-        return {"error": "Conta não encontrada"}
-
-    delete_ssh_user(acc.username)
-
-    db.delete(acc)
-    db.commit()
-
-    return {"message": "Plano cancelado com sucesso"}
-
-
-# ------------------------------------------------------
-# RENOVAR PLANO – N DIAS
-# ------------------------------------------------------
-@app.post("/renew-plan")
-def renew_plan(data: RenewPlan, db: Session = Depends(db)):
-
-    acc = db.query(VPNAccount).filter(VPNAccount.id == data.account_id).first()
-
-    if not acc:
-        return {"error": "Plano não encontrado"}
-
-    new_expires = datetime.now() + timedelta(days=data.days)
-
-    create_ssh_user(acc.username, acc.password, data.days)
-
-    new_ehi = generate_ehi(acc.username, acc.password, str(data.days))
-
-    acc.expires_at = new_expires.isoformat()
-    acc.ehi_file = new_ehi
-
-    db.commit()
-
-    return {
-        "message": "Plano renovado com sucesso!",
-        "expires": new_expires,
-        "ehi": new_ehi
-    }
-
-
-# ------------------------------------------------------
-# VERIFICAR PLANOS QUE EXPIRAM EM 2 DIAS
-# ------------------------------------------------------
-@app.get("/check-expirations")
-def check_expirations(db: Session = Depends(db)):
-
-    today = datetime.now()
-    limit = today + timedelta(days=2)
-
-    accounts = db.query(VPNAccount).all()
-
-    notified_count = 0
-
-    for acc in accounts:
-        expires = datetime.fromisoformat(acc.expires_at)
-
-        if today < expires <= limit and acc.notified_expire == 0:
-
-            user = db.query(User).filter(User.id == acc.owner_id).first()
-
-            if user:
-                send_email(
-                    user.email,
-                    "⚠️ Sua VPN expira em 2 dias",
-                    f"Sua VPN expira em: {acc.expires_at}"
-                )
-
-            acc.notified_expire = 1
-            db.commit()
-            notified_count += 1
-
-    return {
-        "message": "Checagem concluída",
-        "emails_enviados": notified_count
-    }
-
-
-# ------------------------------------------------------
-# RETORNAR PLANOS DO USUÁRIO
-# ------------------------------------------------------
-@app.get("/get-plans/{user_id}")
-def get_plans(user_id: int, db: Session = Depends(db)):
-    accounts = db.query(VPNAccount).filter(VPNAccount.owner_id == user_id).all()
-
+@app.get("/get-plans")
+def get_plans(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return [
         {
             "id": acc.id,
             "username": acc.username,
-            "password": acc.password,
             "plan": acc.plan,
-            "expires": acc.expires_at,
-            "ehi_file": acc.ehi_file
+            "expires": acc.expires_at
         }
-        for acc in accounts
+        for acc in db.query(VPNAccount).filter(VPNAccount.owner_id == user.id)
     ]
+
+# ------------------------------------------------------
+# DOWNLOAD EHI
+# ------------------------------------------------------
+@app.get("/download-ehi/{account_id}")
+def download_ehi(account_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    acc = db.query(VPNAccount).filter(
+        VPNAccount.id == account_id,
+        VPNAccount.owner_id == user.id
+    ).first()
+
+    if not acc:
+        raise HTTPException(404, "Plano não encontrado")
+
+    return Response(
+        content=base64.b64decode(acc.ehi_file),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{acc.username}.ehi"'}
+    )

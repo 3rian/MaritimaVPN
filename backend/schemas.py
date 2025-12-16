@@ -3,16 +3,16 @@ from pydantic import BaseModel
 
 class UserCreate(BaseModel):
     name: str
-    email: EmailStr
+    email: str
     password: str
 
+
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class CreatePlan(BaseModel):
-    user_id: int
-    plan: str  # "30" ou "15"
+    plan_days: int  # "30" , "15 ou 7"
     
     
 
@@ -23,9 +23,9 @@ class TrialRequest(BaseModel):
 
 class RenewPlan(BaseModel):
     account_id: int
-    days: int  # 15 ou 30
+    days: int  # 7, 15 ou 30
 
-class CancelPlan(BaseModel):
-    account_id: int
+#class CancelPlan(BaseModel):
+ #   account_id: int
 
 

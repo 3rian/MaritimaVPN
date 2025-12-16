@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-
-    <!-- ==== SEO BÁSICO ==== -->
+     <!-- ==== SEO BÁSICO ==== -->
 <meta name="description" content="Marítima VPN — Servidores Premium de VPN, SSH, SSL, e HTTP Injector com alta velocidade, estabilidade e segurança. Acesse nossa plataforma oficial para conexões rápidas e protegidas.">
 <meta name="keywords" content="VPN, SSH, SSL, HTTP Injector, Proxy, Marítima VPN, conexão rápida, internet segura, tunelamento, servidores premium, 3rian Souza">
 <meta name="author" content="3rian Souz@">
@@ -25,11 +24,18 @@
 <meta name="twitter:description" content="Servidores Premium com alta velocidade e proteção avançada.">
 <meta name="twitter:image" content="https://maritimavpn.shop/imagem.jpg">
 <meta name="twitter:creator" content="@3rianSouza">
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MarítimaVPN</title>
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        body { background:#0e1a2b; color:white; }
+        .plan-card { background:#14263f; border-radius:12px; padding:25px; }
+        .modal-content { background:#14263f; color:white; }
+        a { cursor:pointer; }
+    </style>
     <style>
         body { background: #0e1a2b; color: white; font-family: Arial, sans-serif; }
         .hero { text-align: center; padding: 80px 20px; }
@@ -41,33 +47,32 @@
         .modal-content { background: #14263f; color: white; border-radius: 12px; }
         footer { text-align: center; padding: 20px; opacity: 0.7; }
     </style>
-    
 </head>
 
 <body>
 
-<script>
-const API_URL = "https://maritimavpn.shop/api";
+<!-- ================= NAVBAR ================= -->
+<nav class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand fw-bold">MarítimaVPN</span>
 
-let USER_ID = null;
-</script>
-
-<!-- NAVBAR -->
-<nav class="navbar navbar-dark bg-dark navbar-expand-lg px-3">
-    <a class="navbar-brand d-flex align-items-center" href="#">
-        <img src="imagens/logo-maritima-vpn-quadrado.jpg" width="50" class="me-2">
-        <span class="fw-bold">MarítimaVPN</span>
-    </a>
-
-    <button class="btn btn-outline-light ms-auto me-2" id="myPlansBtn" onclick="openPlans()" style="display:none;">
+    <button id="myPlansBtn"
+            class="btn btn-outline-light ms-auto me-2"
+            style="display:none;"
+            onclick="openPlans()">
         Meus Planos
     </button>
 
-    <button class="btn btn-primary ms-auto" data-bs-toggle="modal" data-bs-target="#loginModal" id="loginBtn">
+    <button id="loginBtn"
+            class="btn btn-primary"
+            data-bs-toggle="modal"
+            data-bs-target="#loginModal">
         Entrar
     </button>
 
-    <button class="btn btn-danger ms-2" id="logoutBtn" onclick="logout()" style="display:none;">
+    <button id="logoutBtn"
+            class="btn btn-danger ms-2"
+            style="display:none;"
+            onclick="logout()">
         Sair
     </button>
 </nav>
@@ -123,101 +128,132 @@ let USER_ID = null;
 </section>
 
 
-<!-- PLANOS -->
-<section class="plans container">
-    <h2 class="text-center mb-4">Planos Disponíveis</h2>
-    <div class="row g-4 justify-content-center">
+<!-- ================= PLANOS ================= -->
+<section class="container py-5">
+    <h2 class="text-center mb-4">Planos</h2>
 
+    <div class="row g-4">
         <div class="col-md-4">
-            <div class="plan-card">
+            <div class="plan-card text-center">
                 <h3>30 dias</h3>
-                <p class="display-6">R$ 12,00</p>
-                <button class="btn btn-primary w-100" onclick="buyPlan(30)">Comprar</button>
+                <p class="display-6">R$ 12</p>
+                <button class="btn btn-primary w-100" onclick="buyPlan(30)">
+                    Comprar
+                </button>
             </div>
         </div>
 
         <div class="col-md-4">
-            <div class="plan-card">
+            <div class="plan-card text-center">
                 <h3>15 dias</h3>
-                <p class="display-6">R$ 7,00</p>
-                <button class="btn btn-primary w-100" onclick="buyPlan(15)">Comprar</button>
+                <p class="display-6">R$ 7</p>
+                <button class="btn btn-primary w-100" onclick="buyPlan(15)">
+                    Comprar
+                </button>
             </div>
         </div>
 
+        <div class="col-md-4">
+            <div class="plan-card text-center">
+                <h3>7 dias</h3>
+                <p class="display-6">R$ 5</p>
+                <button class="btn btn-primary w-100" onclick="buyPlan(7)">
+                    Comprar
+                </button>
+            </div>
+        </div>
+    </div><br>
+
+    <div class="container  d-flex justify-content-center align-items-center">
+    <div class="col-md-4">
+        <div class="plan-card text-center border border-warning">
+            <h3>Teste Grátis</h3>
+            <p class="fs-5 text-warning">3 horas</p>
+
+            <button class="btn btn-warning w-100 text-dark fw-bold"
+                    onclick="createTrial()">
+                Testar agora
+            </button>
+        </div>
     </div>
+</div>
+
 </section>
 
-<!-- LOGIN MODAL -->
-<div class="modal fade" id="loginModal">
-  <div class="modal-dialog">
-    <div class="modal-content p-3">
-
-      <div class="modal-header border-0">
-        <h5 class="modal-title">Entrar</h5>
-        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-
-      <div class="modal-body">
-        <form id="loginForm">
-            <div class="mb-3">
-                <label>Email</label>
-                <input id="loginEmail" type="email" class="form-control" required>
+<!-- ================= LOGIN MODAL ================= -->
+<div class="modal fade" id="loginModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content p-3">
+            <div class="modal-header border-0">
+                <h5>Entrar</h5>
+                <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
 
-            <div class="mb-3">
-                <label>Senha</label>
-                <input id="loginPassword" type="password" class="form-control" required>
-            </div>
+            <form id="loginForm">
+                <div class="mb-3">
+                    <input id="loginEmail"
+                           type="email"
+                           class="form-control"
+                           placeholder="Email"
+                           required>
+                </div>
+                <div class="mb-3">
+                    <input id="loginPassword"
+                           type="password"
+                           class="form-control"
+                           placeholder="Senha"
+                           required>
+                </div>
 
-            <button class="btn btn-primary w-100" type="submit">Entrar</button>
+                <button type="submit" class="btn btn-primary w-100">
+                    Entrar
+                </button>
 
-            <div class="text-center mt-3">
-                <a href="#" class="text-info" onclick="showRegister()">Criar conta</a>
-            </div>
-        </form>
-      </div>
-
+                <div class="text-center mt-3">
+                    <a onclick="showRegister()">Criar conta</a>
+                </div>
+            </form>
+        </div>
     </div>
-  </div>
 </div>
 
-<!-- REGISTER MODAL -->
-<div class="modal fade" id="registerModal">
-  <div class="modal-dialog">
-    <div class="modal-content p-3">
-
-      <div class="modal-header border-0">
-        <h5 class="modal-title">Criar Conta</h5>
-        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-
-      <div class="modal-body">
-        <form id="registerForm">
-            <div class="mb-3">
-                <label>Nome</label>
-                <input id="regName" class="form-control" required>
+<!-- ================= REGISTER MODAL ================= -->
+<div class="modal fade" id="registerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content p-3">
+            <div class="modal-header border-0">
+                <h5>Criar Conta</h5>
+                <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
 
-            <div class="mb-3">
-                <label>Email</label>
-                <input id="regEmail" type="email" class="form-control" required>
-            </div>
+            <form id="registerForm">
+                <input id="regName"
+                       class="form-control mb-2"
+                       placeholder="Nome"
+                       required>
 
-            <div class="mb-3">
-                <label>Senha</label>
-                <input id="regPassword" type="password" class="form-control" required>
-            </div>
+                <input id="regEmail"
+                       type="email"
+                       class="form-control mb-2"
+                       placeholder="Email"
+                       required>
 
-            <button class="btn btn-success w-100" type="submit">Cadastrar</button>
-        </form>
-      </div>
+                <input id="regPassword"
+                       type="password"
+                       class="form-control mb-3"
+                       placeholder="Senha"
+                       required>
 
+                <button type="submit" class="btn btn-success w-100">
+                    Cadastrar
+                </button>
+            </form>
+        </div>
     </div>
-  </div>
 </div>
 
-<!-- MEUS PLANOS MODAL -->
-<div class="modal fade" id="plansModal">
+<!-- ================= MEUS PLANOS MODAL ================= -->
+<div class="modal fade" id="plansModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content p-3">
             <div class="modal-header border-0">
@@ -225,202 +261,15 @@ let USER_ID = null;
                 <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
 
-            <div class="modal-body" id="plansList">
-                Carregando...
-            </div>
+            <div id="plansList"></div>
         </div>
     </div>
 </div>
-
 <!-- FOOTER -->
 <footer>© 2025 MarítimaVPN — Segurança em alto nível</footer>
-
+<!-- ================= SCRIPTS ================= -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
-<script>
-
-// ---------------------------
-// LOGIN
-// ---------------------------
-document.getElementById("loginForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-
-    const email = loginEmail.value;
-    const password = loginPassword.value;
-
-    const req = await fetch(API_URL + "/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
-    });
-
-    const res = await req.json();
-
-    if (res.user_id) {
-        USER_ID = res.user_id;
-
-        loginBtn.style.display = "none";
-        logoutBtn.style.display = "inline-block";
-        myPlansBtn.style.display = "inline-block";
-
-        bootstrap.Modal.getInstance(loginModal).hide();
-        alert("Login realizado com sucesso!");
-
-    } else {
-        alert("Credenciais inválidas");
-    }
-});
-
-// ---------------------------
-// CADASTRO
-// ---------------------------
-document.getElementById("registerForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-
-    const req = await fetch(API_URL + "/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            name: regName.value,
-            email: regEmail.value,
-            password: regPassword.value
-        })
-    });
-
-    const res = await req.json();
-    alert(res.message || "Conta criada!");
-
-    bootstrap.Modal.getInstance(registerModal).hide();
-});
-
-// ---------------------------
-// COMPRAR PLANO
-// ---------------------------
-async function buyPlan(days) {
-
-    if (!USER_ID) {
-        alert("Você precisa estar logado para comprar um plano.");
-        return;
-    }
-
-    const req = await fetch(API_URL + "/create-plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: USER_ID, plan: String(days) })
-    });
-
-    const res = await req.json();
-
-    if (res.ehi) {
-        alert("Plano criado com sucesso! Seu arquivo EHI está disponível em Meus Planos.");
-
-        // Download imediato do EHI
-        let link = document.createElement("a");
-        link.href = "data:application/octet-stream;base64," + res.ehi;
-        link.download = `MaritimaVPN_${days}dias.ehi`;
-        link.click();
-
-    } else {
-        alert("Erro ao criar o plano.");
-    }
-}
-
-// ---------------------------
-// MEUS PLANOS
-// ---------------------------
-async function openPlans() {
-    if (!USER_ID) return;
-
-    const req = await fetch(API_URL + "/get-plans/" + USER_ID);
-    const plans = await req.json();
-
-    let html = "";
-    plans.forEach(p => {
-        html += `
-            <div class="p-3 mb-3" style="background:#14263f; border-radius:10px;">
-                <h5>${p.plan} dias</h5>
-                <p>Usuário SSH: <b>${p.username}</b></p>
-                <p>Validade: <b>${p.expires}</b></p>
-
-                <a class="btn btn-success btn-sm"
-                   href="data:application/octet-stream;base64,${p.ehi_file}"
-                   download="MaritimaVPN_${p.username}.ehi">Download EHI</a>
-
-                <button class="btn btn-warning btn-sm" onclick="renewPlan(${p.id})">Renovar</button>
-                <button class="btn btn-danger btn-sm" onclick="cancelPlan(${p.id})">Cancelar</button>
-            </div>
-        `;
-    });
-
-    plansList.innerHTML = html;
-    new bootstrap.Modal(plansModal).show();
-}
-
-// ---------------------------
-// RENOVAR PLANO
-// ---------------------------
-async function renewPlan(id) {
-    const days = prompt("Por quantos dias deseja renovar?", "30");
-    if (!days) return;
-
-    const req = await fetch(API_URL + "/renew-plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account_id: id, days: Number(days) })
-    });
-
-    const res = await req.json();
-
-    if (res.ehi) {
-        alert("Plano renovado com sucesso!");
-
-        let link = document.createElement("a");
-        link.href = "data:application/octet-stream;base64," + res.ehi;
-        link.download = `MaritimaVPN_Renovado_${days}dias.ehi`;
-        link.click();
-
-        openPlans();
-    }
-}
-
-// ---------------------------
-// CANCELAR PLANO
-// ---------------------------
-async function cancelPlan(id) {
-
-    if (!confirm("Tem certeza que deseja cancelar este plano?")) return;
-
-    const req = await fetch(API_URL + "/cancel-plan?account_id=" + id, {
-        method: "POST"
-    });
-
-    const res = await req.json();
-
-    alert(res.message || "Plano cancelado.");
-
-    openPlans();
-}
-
-// ---------------------------
-// LOGOUT
-// ---------------------------
-function logout() {
-    USER_ID = null;
-    loginBtn.style.display = "inline-block";
-    logoutBtn.style.display = "none";
-    myPlansBtn.style.display = "none";
-    alert("Você saiu.");
-}
-
-// ---------------------------
-// UI SWITCH REGISTER
-// ---------------------------
-function showRegister() {
-    bootstrap.Modal.getInstance(loginModal).hide();
-    new bootstrap.Modal(registerModal).show();
-}
-
-</script>
+<script src="js/app.js"></script>
 
 </body>
 </html>
