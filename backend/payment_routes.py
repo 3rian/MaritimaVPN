@@ -1,113 +1,143 @@
-import uuid
-from fastapi import APIRouter, Request
+import os
 import mercadopago
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
 
-router = APIRouter()
+from database import SessionLocal
+from models import Payment, User, VPNAccount
+from schemas import CreatePlan
+from ssh_connector import create_ssh_user
+from ehi_generator import generate_ehi
 
-# ================================
-#  CONFIG MERCADO PAGO
-# ================================
-mp = mercadopago.SDK("TEST-2636876912816804-120619-ecc30317c9b6194ef03217949a8bde44-149920841")
+# ------------------------------------------------------
+# CONFIGURAÇÃO
+# ------------------------------------------------------
+router = APIRouter(prefix="/api")
 
-# ================================
-#  CONFIG EMAIL
-# ================================
-EMAIL_USER = "maritimavpn@gmail.com"
-EMAIL_PASS = "mbaq wsgk otax eyfz"  # senha de app
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
 
+PLAN_PRICES = {
+    7: 5.00,
+    15: 7.00,
+    30: 12.00
+}
 
-# ================================
-#  FUNÇÃO ENVIAR E-MAIL
-# ================================
-def send_email(to_email, subject, body):
-    msg = MIMEMultipart()
-    msg["From"] = EMAIL_USER
-    msg["To"] = to_email
-    msg["Subject"] = subject
-
-    msg.attach(MIMEText(body, "html"))
-
+# ------------------------------------------------------
+# DEPENDÊNCIA DB
+# ------------------------------------------------------
+def db():
+    database = SessionLocal()
     try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(EMAIL_USER, EMAIL_PASS)
-        server.send_message(msg)
-        server.quit()
-        print("Email enviado com sucesso!")
-    except Exception as e:
-        print("Erro ao enviar email:", e)
+        yield database
+    finally:
+        database.close()
 
+# ------------------------------------------------------
+# CRIAR PIX
+# ------------------------------------------------------
+@router.post("/create-pix")
+def create_pix(data: CreatePlan, db: Session = Depends(db)):
 
-# ================================
-#  CRIAR ORDEM DE PAGAMENTO
-# ================================
-@router.post("/create_payment")
-async def create_payment(data: dict):
+    plan_days = int(data.plan_days)
+    price = PLAN_PRICES.get(plan_days)
+    if not price:
+        raise HTTPException(400, "Plano inválido")
 
-    plan = data.get("plan")
-    user_email = data.get("email")
+    user = db.query(User).filter(User.id == data.user_id).first()
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
 
-    if plan == "30":
-        price = 12
-        days = 30
-    elif plan == "15":
-        price = 7
-        days = 15
-    else:
-        return {"error": "Plano inválido"}
-
-    preference_data = {
-        "items": [
-            {
-                "title": f"Plano {days} dias – Maritima VPN",
-                "quantity": 1,
-                "unit_price": float(price)
-            }
-        ],
-        "payer": {"email": user_email},
-        "notification_url": "https://maritivavpn.shop/webhook",
-
-        "back_urls": {
-            "success": "https://seusite.com/sucesso",
-            "failure": "https://seusite.com/erro"
-        }
+    payment_data = {
+        "transaction_amount": float(price),
+        "description": f"Plano Marítima VPN - {plan_days} dias",
+        "payment_method_id": "pix",
+        "payer": {
+            "email": user.email
+        },
+        "notification_url": "https://maritimavpn.shop/api/webhook/mercadopago"
     }
 
-    preference = mp.preference().create(preference_data)
-    return {"init_point": preference["response"]["init_point"]}
+    payment = sdk.payment().create(payment_data)
+    response = payment.get("response")
 
+    if not response or "id" not in response:
+        raise HTTPException(500, "Erro ao criar pagamento")
 
-# ================================
-#  WEBHOOK MERCADO PAGO
-# ================================
-@router.post("/webhook")
-async def webhook(request: Request):
+    new_payment = Payment(
+        user_id=user.id,
+        plan_days=plan_days,
+        mp_payment_id=str(response["id"]),
+        status=response["status"],
+        created_at=datetime.utcnow().isoformat()
+    )
+
+    db.add(new_payment)
+    db.commit()
+
+    return {
+        "payment_id": response["id"],
+        "status": response["status"],
+        "qr_code": response["point_of_interaction"]["transaction_data"]["qr_code"],
+        "qr_code_base64": response["point_of_interaction"]["transaction_data"]["qr_code_base64"]
+    }
+
+# ------------------------------------------------------
+# WEBHOOK MERCADO PAGO
+# ------------------------------------------------------
+@router.post("/webhook/mercadopago")
+async def mercadopago_webhook(request: Request, db: Session = Depends(db)):
+
     body = await request.json()
-    print("Webhook recebido:", body)
 
-    if body.get("topic") == "payment":
+    if body.get("type") != "payment":
+        return {"status": "ignored"}
 
-        payment_id = body["data"]["id"]
-        info = mp.payment().get(payment_id)
+    payment_id = body.get("data", {}).get("id")
+    if not payment_id:
+        return {"status": "invalid"}
 
-        status = info["response"]["status"]
-        email = info["response"]["payer"]["email"]
+    mp_payment = sdk.payment().get(payment_id)
+    response = mp_payment.get("response")
 
-        if status == "approved":
-            # Exemplo de e-mail enviado ao cliente
-            send_email(
-                email,
-                "Pagamento Aprovado - Maritima VPN",
-                f"""
-                <h2>Pagamento aprovado!</h2>
-                <p>Obrigado por comprar seu plano Maritima VPN.</p>
-                <p>Seu acesso será liberado em instantes.</p>
-                """
-            )
+    if not response:
+        return {"status": "mp_error"}
 
-    return {"status": "ok"}
+    if response["status"] != "approved":
+        return {"status": "not_approved"}
+
+    payment_db = db.query(Payment).filter(
+        Payment.mp_payment_id == str(payment_id)
+    ).first()
+
+    if not payment_db or payment_db.status == "approved":
+        return {"status": "already_processed"}
+
+    # ATUALIZA PAGAMENTO
+    payment_db.status = "approved"
+    db.commit()
+
+    # CRIA PLANO AUTOMATICAMENTE
+    plan_days = payment_db.plan_days
+    expires = datetime.utcnow() + timedelta(days=plan_days)
+
+    username = f"user{payment_db.user_id}{payment_id[-4:]}"
+    password = os.urandom(4).hex()
+
+    create_ssh_user(username, password, plan_days)
+    ehi = generate_ehi(username, password, str(plan_days))
+
+    new_acc = VPNAccount(
+        owner_id=payment_db.user_id,
+        username=username,
+        password=password,
+        plan=str(plan_days),
+        expires_at=expires.isoformat(),
+        ehi_file=ehi,
+        notified_expire=0
+    )
+
+    db.add(new_acc)
+    db.commit()
+
+    return {"status": "plan_created"}

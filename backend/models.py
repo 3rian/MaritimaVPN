@@ -1,6 +1,5 @@
 # models.py
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
-from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -47,7 +46,7 @@ class Trial(Base):
 
     user = relationship("User", back_populates="trials")
     
-    class Payment(Base):
+class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True)
