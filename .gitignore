@@ -14,3 +14,5 @@ venv/
 # Node / frontend
 node_modules/
 
+FETCH_HEAD
+
