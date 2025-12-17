@@ -141,3 +141,76 @@ async def mercadopago_webhook(request: Request, db: Session = Depends(db)):
     db.commit()
 
     return {"status": "plan_created"}
+
+# ------------------------------------------------------
+# NOVA ROTA: CRIAR PLANO DIRETO (para botão "Comprar Plano")
+# ------------------------------------------------------
+@router.post("/create-plan")
+def create_plan(data: CreatePlan, db: Session = Depends(db)):
+    plan_days = int(data.plan_days)
+    if plan_days not in PLAN_PRICES:
+        raise HTTPException(400, "Plano inválido")
+
+    # Para simplificar, pegamos o primeiro usuário (ou você pode passar user_id no frontend)
+    user = db.query(User).first()
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    expires = datetime.utcnow() + timedelta(days=plan_days)
+    username = f"user{user.id}{int(datetime.utcnow().timestamp())%10000}"
+    password = os.urandom(4).hex()
+
+    create_ssh_user(username, password, plan_days)
+    ehi = generate_ehi(username, password, str(plan_days))
+
+    new_acc = VPNAccount(
+        owner_id=user.id,
+        username=username,
+        password=password,
+        plan=str(plan_days),
+        expires_at=expires.isoformat(),
+        ehi_file=ehi,
+        notified_expire=0
+    )
+
+    db.add(new_acc)
+    db.commit()
+
+    return {"message": f"Plano de {plan_days} dias criado", "username": username, "password": password, "expires": expires.isoformat()}
+
+# ------------------------------------------------------
+# NOVA ROTA: CRIAR PLANO DE TESTE GRÁTIS
+# ------------------------------------------------------
+@router.post("/trial")
+def create_trial(request_data: dict, db: Session = Depends(db)):
+    user_id = request_data.get("user_id")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    plan_days = 3  # Duração do teste grátis
+    expires = datetime.utcnow() + timedelta(days=plan_days)
+    username = f"user{user.id}{int(datetime.utcnow().timestamp())%10000}"
+    password = os.urandom(4).hex()
+
+    create_ssh_user(username, password, plan_days)
+    ehi = generate_ehi(username, password, str(plan_days))
+
+    new_acc = VPNAccount(
+        owner_id=user.id,
+        username=username,
+        password=password,
+        plan=str(plan_days),
+        expires_at=expires.isoformat(),
+        ehi_file=ehi,
+        notified_expire=0
+    )
+
+    db.add(new_acc)
+    db.commit()
+
+    return {
+        "username": username,
+        "password": password,
+        "expires": expires.isoformat()
+    }

@@ -1,25 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException, Response, Header
-from sqlalchemy.orm import Session
+import os
 from datetime import datetime, timedelta
+from fastapi import FastAPI, Depends, HTTPException, Response, Header
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 from jose import jwt, JWTError
-import random, string, base64, os
 
 from database import Base, engine, SessionLocal
 from models import User, VPNAccount
-from schemas import UserCreate, UserLogin, CreatePlan
+from schemas import UserCreate, UserLogin
 from auth import hash_password, verify_password
 from ssh_connector import create_ssh_user, delete_ssh_user
 from ehi_generator import generate_ehi
 from email_sender import send_email
-
 from payment_routes import router as payment_router
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-
-
-
-app.mount("/js", StaticFiles(directory="js"), name="js")
-app.mount("/imagens", StaticFiles(directory="imagens"), name="imagens")
 
 # ------------------------------------------------------
 # CONFIG JWT
@@ -31,15 +24,20 @@ TOKEN_EXPIRE_HOURS = 24
 # ------------------------------------------------------
 # APP
 # ------------------------------------------------------
-Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
-# 👉 inclui PIX / webhook aqui
+# Monta diretórios de arquivos estáticos
+app.mount("/js", StaticFiles(directory="js"), name="js")
+app.mount("/imagens", StaticFiles(directory="imagens"), name="imagens")
+
+# Inclui rotas de pagamento, planos e testes grátis
 app.include_router(payment_router)
 
 # ------------------------------------------------------
 # DB
 # ------------------------------------------------------
+Base.metadata.create_all(bind=engine)
+
 def get_db():
     db = SessionLocal()
     try:
@@ -108,4 +106,5 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(401, "Credenciais inválidas")
 
-    token = create_token
+    token = create_token(user.id)
+    return {"token": token}
