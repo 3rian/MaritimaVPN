@@ -4,11 +4,13 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from database import SessionLocal
-from models import Payment, User, VPNAccount
-from schemas import CreatePlan
-from ssh_connector import create_ssh_user
-from ehi_generator import generate_ehi
+from .database import SessionLocal
+from .models import Payment, User, VPNAccount
+from .schemas import CreatePlan
+from .ssh_connector import create_ssh_user
+from .ehi_generator import generate_ehi
+from .email_sender import send_email
+
 
 # ------------------------------------------------------
 # CONFIGURAÇÃO
