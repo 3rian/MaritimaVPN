@@ -5,14 +5,14 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 
-from database import Base, engine, SessionLocal
-from models import User, VPNAccount
-from schemas import UserCreate, UserLogin
-from auth import hash_password, verify_password
-from ssh_connector import create_ssh_user, delete_ssh_user
-from ehi_generator import generate_ehi
-from email_sender import send_email
-from payment_routes import router as payment_router
+from .database import Base, engine, SessionLocal
+from .models import User, VPNAccount
+from .schemas import UserCreate, UserLogin
+from .auth import hash_password, verify_password
+from .ssh_connector import create_ssh_user, delete_ssh_user
+from .ehi_generator import generate_ehi
+from .email_sender import send_email
+from .payment_routes import router as payment_router
 
 # ------------------------------------------------------
 # CONFIG JWT
