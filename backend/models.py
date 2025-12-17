@@ -1,7 +1,16 @@
 # models.py
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
+from datetime import datetime
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+)
 from sqlalchemy.orm import relationship
 from .database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -55,3 +64,14 @@ class Payment(Base):
     mp_payment_id = Column(String)
     status = Column(String)
     created_at = Column(String)
+    
+    
+    
+class LoginLog(Base):
+    __tablename__ = "login_logs"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String)
+    ip_address = Column(String)
+    user_agent = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
