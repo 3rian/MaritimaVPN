@@ -4,6 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException, Response, Header
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
+from fastapi import Request
 
 from .database import Base, engine, SessionLocal
 from .models import User, VPNAccount
@@ -96,15 +97,44 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
     return {"message": "Conta criada com sucesso"}
 
+
 # ------------------------------------------------------
 # LOGIN
 # ------------------------------------------------------
+#@app.post("/api/login")
+#def login(data: UserLogin, db: Session = Depends(get_db)):
+ #   user = db.query(User).filter(User.email == data.email).first()
+
+  #  if not user or not verify_password(data.password, user.password):
+   #     raise HTTPException(401, "Credenciais inválidas")
+
+    #token = create_token(user.id)
+    #return {"token": token}
+    
+from fastapi import Request
+
 @app.post("/api/login")
-def login(data: UserLogin, db: Session = Depends(get_db)):
+def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
+    # Busca usuário pelo email
     user = db.query(User).filter(User.email == data.email).first()
 
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(401, "Credenciais inválidas")
 
+    # Coleta IP e User-Agent
+    ip = request.client.host
+    user_agent = request.headers.get("user-agent", "unknown")
+
+    # Registra login no banco
+    log = LoginLog(
+        email=user.email,
+        ip_address=ip,
+        user_agent=user_agent
+    )
+    db.add(log)
+    db.commit()
+
+    # Cria token JWT
     token = create_token(user.id)
     return {"token": token}
+    

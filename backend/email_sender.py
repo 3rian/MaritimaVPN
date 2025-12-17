@@ -50,5 +50,5 @@ Obrigado por usar a Maritima VPN!
         print(f"Erro ao enviar o e-mail: {e}")
         
 def send_email(to_email, username):
-        return send_ehi_email(to_email, username)
+        return send_ehi_email(to_email, username)    
 
