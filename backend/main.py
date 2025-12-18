@@ -1,18 +1,15 @@
 import os
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException, Response, Header
+
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
-from fastapi import Request
 
 from .database import Base, engine, SessionLocal
-from .models import User, VPNAccount
+from .models import User, VPNAccount, LoginLog
 from .schemas import UserCreate, UserLogin
 from .auth import hash_password, verify_password
-from .ssh_connector import create_ssh_user, delete_ssh_user
-from .ehi_generator import generate_ehi
-from .email_sender import send_email
 from .payment_routes import router as payment_router
 
 # ------------------------------------------------------
@@ -27,11 +24,11 @@ TOKEN_EXPIRE_HOURS = 24
 # ------------------------------------------------------
 app = FastAPI()
 
-# Monta diretórios de arquivos estáticos
+# Arquivos estáticos
 app.mount("/js", StaticFiles(directory="js"), name="js")
 app.mount("/imagens", StaticFiles(directory="imagens"), name="imagens")
 
-# Inclui rotas de pagamento, planos e testes grátis
+# Rotas de pagamento (PIX, webhook, planos)
 app.include_router(payment_router)
 
 # ------------------------------------------------------
@@ -61,7 +58,7 @@ def get_current_user(
     db: Session = Depends(get_db)
 ):
     if not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Token inválido")
+        raise HTTPException(status_code=401, detail="Token inválido")
 
     token = authorization.replace("Bearer ", "")
 
@@ -69,11 +66,11 @@ def get_current_user(
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = int(payload["sub"])
     except JWTError:
-        raise HTTPException(401, "Token expirado ou inválido")
+        raise HTTPException(status_code=401, detail="Token expirado ou inválido")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(401, "Usuário não encontrado")
+        raise HTTPException(status_code=401, detail="Usuário não encontrado")
 
     return user
 
@@ -83,7 +80,7 @@ def get_current_user(
 @app.post("/api/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == user.email).first():
-        raise HTTPException(400, "E-mail já cadastrado")
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado")
 
     new_user = User(
         name=user.name,
@@ -97,44 +94,46 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
     return {"message": "Conta criada com sucesso"}
 
-
 # ------------------------------------------------------
 # LOGIN
 # ------------------------------------------------------
-#@app.post("/api/login")
-#def login(data: UserLogin, db: Session = Depends(get_db)):
- #   user = db.query(User).filter(User.email == data.email).first()
-
-  #  if not user or not verify_password(data.password, user.password):
-   #     raise HTTPException(401, "Credenciais inválidas")
-
-    #token = create_token(user.id)
-    #return {"token": token}
-    
-from fastapi import Request
-
 @app.post("/api/login")
 def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
-    # Busca usuário pelo email
     user = db.query(User).filter(User.email == data.email).first()
 
     if not user or not verify_password(data.password, user.password):
-        raise HTTPException(401, "Credenciais inválidas")
+        raise HTTPException(status_code=401, detail="Credenciais inválidas")
 
-    # Coleta IP e User-Agent
-    ip = request.client.host
-    user_agent = request.headers.get("user-agent", "unknown")
-
-    # Registra login no banco
+    # Log de login
     log = LoginLog(
         email=user.email,
-        ip_address=ip,
-        user_agent=user_agent
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent", "unknown")
     )
     db.add(log)
     db.commit()
 
-    # Cria token JWT
     token = create_token(user.id)
     return {"token": token}
-    
+
+# ------------------------------------------------------
+# GET PLANS (MEUS PLANOS)
+# ------------------------------------------------------
+@app.get("/api/get-plans")
+def get_plans(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    plans = db.query(VPNAccount).filter(
+        VPNAccount.owner_id == user.id
+    ).all()
+
+    return [
+        {
+            "id": p.id,
+            "plan": p.plan,
+            "username": p.username,
+            "expires": p.expires_at
+        }
+        for p in plans
+    ]

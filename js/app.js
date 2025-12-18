@@ -5,7 +5,7 @@ const API_URL = "/api";
 const TOKEN_KEY = "maritima_token";
 
 // ============================
-// UTIL
+// TOKEN / AUTH
 // ============================
 function getToken() {
     return localStorage.getItem(TOKEN_KEY);
@@ -19,15 +19,15 @@ function clearToken() {
     localStorage.removeItem(TOKEN_KEY);
 }
 
+function isLogged() {
+    return !!getToken();
+}
+
 function authHeaders() {
     return {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + getToken()
     };
-}
-
-function isLogged() {
-    return !!getToken();
 }
 
 // ============================
@@ -36,8 +36,11 @@ function isLogged() {
 document.addEventListener("DOMContentLoaded", () => {
     updateNavbar();
 
-    document.getElementById("loginForm").addEventListener("submit", login);
-    document.getElementById("registerForm").addEventListener("submit", register);
+    const loginForm = document.getElementById("loginForm");
+    const registerForm = document.getElementById("registerForm");
+
+    if (loginForm) loginForm.addEventListener("submit", login);
+    if (registerForm) registerForm.addEventListener("submit", register);
 });
 
 // ============================
@@ -46,9 +49,13 @@ document.addEventListener("DOMContentLoaded", () => {
 function updateNavbar() {
     const logged = isLogged();
 
-    document.getElementById("loginBtn").style.display = logged ? "none" : "inline-block";
-    document.getElementById("logoutBtn").style.display = logged ? "inline-block" : "none";
-    document.getElementById("myPlansBtn").style.display = logged ? "inline-block" : "none";
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const myPlansBtn = document.getElementById("myPlansBtn");
+
+    if (loginBtn) loginBtn.style.display = logged ? "none" : "inline-block";
+    if (logoutBtn) logoutBtn.style.display = logged ? "inline-block" : "none";
+    if (myPlansBtn) myPlansBtn.style.display = logged ? "inline-block" : "none";
 }
 
 // ============================
@@ -60,26 +67,27 @@ async function login(e) {
     const email = document.getElementById("loginEmail").value;
     const password = document.getElementById("loginPassword").value;
 
-    const req = await fetch(API_URL + "/login", {
+    const res = await fetch(API_URL + "/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
     });
 
-    const res = await req.json();
+    const data = await res.json();
 
-    if (res.token) {
-        setToken(res.token);
-        updateNavbar();
-
-        bootstrap.Modal.getInstance(
-            document.getElementById("loginModal")
-        ).hide();
-
-        alert("Login realizado com sucesso!");
-    } else {
-        alert(res.detail || "Credenciais inválidas");
+    if (!res.ok) {
+        alert(data.detail || "Credenciais inválidas");
+        return;
     }
+
+    setToken(data.token);
+    updateNavbar();
+
+    bootstrap.Modal.getInstance(
+        document.getElementById("loginModal")
+    ).hide();
+
+    alert("Login realizado com sucesso!");
 }
 
 // ============================
@@ -92,15 +100,20 @@ async function register(e) {
     const email = document.getElementById("regEmail").value;
     const password = document.getElementById("regPassword").value;
 
-    const req = await fetch(API_URL + "/register", {
+    const res = await fetch(API_URL + "/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, password })
     });
 
-    const res = await req.json();
+    const data = await res.json();
 
-    alert(res.message || "Conta criada!");
+    if (!res.ok) {
+        alert(data.detail || "Erro ao criar conta");
+        return;
+    }
+
+    alert("Conta criada com sucesso!");
 
     bootstrap.Modal.getInstance(
         document.getElementById("registerModal")
@@ -117,52 +130,75 @@ function logout() {
 }
 
 // ============================
-// BUY PLAN
+// COMPRAR PLANO (PIX)
 // ============================
 async function buyPlan(days) {
     if (!isLogged()) {
-        alert("Você precisa estar logado para comprar.");
+        alert("Faça login para comprar um plano.");
         return;
     }
 
-    const req = await fetch(API_URL + "/create-plan", {
+    const res = await fetch(API_URL + "/create-pix", {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ plan_days: days })
     });
 
-    const res = await req.json();
+    const data = await res.json();
 
-    if (req.ok) {
-        alert("Plano criado com sucesso!");
-        openPlans();
-    } else {
-        alert(res.detail || "Erro ao criar plano");
+    if (!res.ok) {
+        alert(data.detail || "Erro ao gerar PIX");
+        return;
     }
+
+    // Exibe QR Code PIX
+    document.getElementById("pixQr").src =
+        "data:image/png;base64," + data.qr_code_base64;
+
+    document.getElementById("pixCode").value = data.qr_code;
+
+    new bootstrap.Modal(
+        document.getElementById("pixModal")
+    ).show();
 }
 
 // ============================
-// OPEN PLANS
+// COPIAR PIX
+// ============================
+function copyPix() {
+    const input = document.getElementById("pixCode");
+    input.select();
+    document.execCommand("copy");
+    alert("Código PIX copiado!");
+}
+
+// ============================
+// MEUS PLANOS
 // ============================
 async function openPlans() {
     if (!isLogged()) return;
 
-    const req = await fetch(API_URL + "/get-plans", {
+    const res = await fetch(API_URL + "/get-plans", {
         headers: authHeaders()
     });
 
-    const plans = await req.json();
+    if (!res.ok) {
+        alert("Erro ao carregar planos");
+        return;
+    }
+
+    const plans = await res.json();
 
     let html = "";
 
     if (!plans.length) {
-        html = "<p>Nenhum plano ativo.</p>";
+        html = "<p>Nenhum plano ativo ainda.</p>";
     }
 
     plans.forEach(p => {
         html += `
         <div class="p-3 mb-3" style="background:#14263f;border-radius:10px;">
-            <h5>${p.plan} dias</h5>
+            <h5>Plano ${p.plan} dias</h5>
             <p>Usuário: <b>${p.username}</b></p>
             <p>Expira: <b>${p.expires}</b></p>
 
@@ -183,7 +219,7 @@ async function openPlans() {
 }
 
 // ============================
-// SWITCH LOGIN → REGISTER
+// MODAL SWITCH
 // ============================
 function showRegister() {
     bootstrap.Modal.getInstance(
@@ -195,38 +231,76 @@ function showRegister() {
     ).show();
 }
 
-function createTrial() {
-    const user = JSON.parse(localStorage.getItem("user"));
-
-    if (!user) {
-        alert("Faça login para usar o teste grátis.");
+async function openPix(days) {
+    if (!isLogged()) {
+        alert("Faça login para comprar um plano.");
         return;
     }
 
-    fetch("/trial", {
+    const res = await fetch("/api/create-pix", {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            user_id: user.user_id
-        })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.error) {
-            alert(data.error);
+        headers: authHeaders(),
+        body: JSON.stringify({ plan_days: days })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+        alert(data.detail || "Erro ao gerar PIX");
+        return;
+    }
+
+    document.getElementById("pixQrImg").src =
+        "data:image/png;base64," + data.qr_code_base64;
+    document.getElementById("pixQrImg").style.display = "block";
+
+    document.getElementById("pixCode").value = data.qr_code;
+    document.getElementById("pixCode").style.display = "block";
+
+    document.getElementById("copyPixBtn").style.display = "inline-block";
+
+    new bootstrap.Modal(
+        document.getElementById("pixModal")
+    ).show();
+}
+
+// ============================
+// TRIAL (TESTE GRÁTIS)
+// ============================
+async function createTrial() {
+
+    // 🔒 Verifica se está logado
+    if (!isLogged()) {
+        alert("Você precisa estar logado para usar o teste grátis.");
+        return;
+    }
+
+    try {
+        const res = await fetch(API_URL + "/trial", {
+            method: "POST",
+            headers: authHeaders()
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            alert(data.detail || "Erro ao ativar teste grátis.");
             return;
         }
 
         alert(
-            "Teste grátis ativado!\n\n" +
+            "🎉 Teste grátis ativado!\n\n" +
             "Usuário: " + data.username + "\n" +
             "Senha: " + data.password + "\n" +
             "Expira em: " + data.expires
         );
-    })
-    .catch(() => {
-        alert("Erro ao criar teste grátis.");
-    });
+
+        // Atualiza lista de planos
+        updateNavbar();
+        openPlans();
+
+    } catch (err) {
+        alert("Erro de conexão com o servidor.");
+    }
 }
+
