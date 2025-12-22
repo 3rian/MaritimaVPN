@@ -75,14 +75,4 @@ class LoginLog(Base):
     ip_address = Column(String)
     user_agent = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-
-class LoginLog(Base):
-    __tablename__ = "login_logs"
-    __table_args__ = {"extend_existing": True}
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, nullable=False)
-    ip_address = Column(String, nullable=False)
-    user_agent = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)    
+   
