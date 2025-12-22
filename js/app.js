@@ -268,39 +268,31 @@ async function openPix(days) {
 // TRIAL (TESTE GRÁTIS)
 // ============================
 async function createTrial() {
-
-    // 🔒 Verifica se está logado
     if (!isLogged()) {
         alert("Você precisa estar logado para usar o teste grátis.");
         return;
     }
 
-    try {
-        const res = await fetch(API_URL + "/trial", {
-            method: "POST",
-            headers: authHeaders()
-        });
+    const res = await fetch("/api/trial", {
+        method: "POST",
+        headers: authHeaders()
+    });
 
-        const data = await res.json();
+    const data = await res.json();
 
-        if (!res.ok) {
-            alert(data.detail || "Erro ao ativar teste grátis.");
-            return;
-        }
-
-        alert(
-            "🎉 Teste grátis ativado!\n\n" +
-            "Usuário: " + data.username + "\n" +
-            "Senha: " + data.password + "\n" +
-            "Expira em: " + data.expires
-        );
-
-        // Atualiza lista de planos
-        updateNavbar();
-        openPlans();
-
-    } catch (err) {
-        alert("Erro de conexão com o servidor.");
+    if (!res.ok) {
+        alert(data.detail || "Erro ao criar teste grátis");
+        return;
     }
+
+    alert(
+        "Teste grátis ativado!\n\n" +
+        "Usuário: " + data.username + "\n" +
+        "Senha: " + data.password + "\n" +
+        "Expira em: " + data.expires
+    );
+
+    openPlans();
 }
+
 

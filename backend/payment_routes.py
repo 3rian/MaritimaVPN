@@ -4,19 +4,19 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from .auth import get_current_user
 from .database import SessionLocal
 from .models import Payment, User, VPNAccount
 from .schemas import CreatePlan
 from .ssh_connector import create_ssh_user
 from .ehi_generator import generate_ehi
 from .email_sender import send_email
-from .auth import get_current_user
-
 
 # ------------------------------------------------------
 # CONFIG
 # ------------------------------------------------------
 router = APIRouter(prefix="/api")
+
 sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
 
 PLAN_PRICES = {
@@ -24,7 +24,6 @@ PLAN_PRICES = {
     15: 7.00,
     30: 12.00
 }
-
 
 # ------------------------------------------------------
 # DB
@@ -36,9 +35,8 @@ def get_db():
     finally:
         db.close()
 
-
 # ------------------------------------------------------
-# CRIAR PIX (NÃO CRIA PLANO)
+# CRIAR PIX (NÃO CRIA PLANO AQUI)
 # ------------------------------------------------------
 @router.post("/create-pix")
 def create_pix(
@@ -50,23 +48,25 @@ def create_pix(
     price = PLAN_PRICES.get(plan_days)
 
     if not price:
-        raise HTTPException(400, "Plano inválido")
+        raise HTTPException(status_code=400, detail="Plano inválido")
 
     payment_data = {
         "transaction_amount": float(price),
         "description": f"Plano Marítima VPN - {plan_days} dias",
         "payment_method_id": "pix",
-        "payer": {"email": user.email},
+        "payer": {
+            "email": user.email
+        },
         "notification_url": "https://maritimavpn.shop/api/webhook/mercadopago"
     }
 
-    payment = sdk.payment().create(payment_data)
-    response = payment.get("response")
+    mp_payment = sdk.payment().create(payment_data)
+    response = mp_payment.get("response")
 
     if not response or "id" not in response:
-        raise HTTPException(500, "Erro ao criar pagamento")
+        raise HTTPException(status_code=500, detail="Erro ao criar pagamento PIX")
 
-    new_payment = Payment(
+    payment = Payment(
         user_id=user.id,
         plan_days=plan_days,
         mp_payment_id=str(response["id"]),
@@ -74,24 +74,24 @@ def create_pix(
         created_at=datetime.utcnow().isoformat()
     )
 
-    db.add(new_payment)
+    db.add(payment)
     db.commit()
+
+    tx = response["point_of_interaction"]["transaction_data"]
 
     return {
         "payment_id": response["id"],
         "status": response["status"],
-        "qr_code": response["point_of_interaction"]["transaction_data"]["qr_code"],
-        "qr_code_base64": response["point_of_interaction"]["transaction_data"]["qr_code_base64"],
-        "copy_paste": response["point_of_interaction"]["transaction_data"]["qr_code"]
+        "qr_code": tx["qr_code"],
+        "qr_code_base64": tx["qr_code_base64"],
+        "copy_paste": tx["qr_code"]
     }
 
-
 # ------------------------------------------------------
-# WEBHOOK MERCADO PAGO (CRIA PLANO AQUI)
+# WEBHOOK MERCADO PAGO (CRIA PLANO APÓS PAGAMENTO)
 # ------------------------------------------------------
 @router.post("/webhook/mercadopago")
 async def mercadopago_webhook(request: Request, db: Session = Depends(get_db)):
-
     body = await request.json()
 
     if body.get("type") != "payment":
@@ -114,7 +114,7 @@ async def mercadopago_webhook(request: Request, db: Session = Depends(get_db)):
     if not payment_db or payment_db.status == "approved":
         return {"status": "already_processed"}
 
-    # Marca pagamento como aprovado
+    # Atualiza pagamento
     payment_db.status = "approved"
     db.commit()
 
@@ -145,12 +145,12 @@ async def mercadopago_webhook(request: Request, db: Session = Depends(get_db)):
     db.add(vpn)
     db.commit()
 
-    # ENVIA EMAIL COM EHI
+    # ENVIA EMAIL
     send_email(
         to=user.email,
         subject="Seu acesso Marítima VPN",
         body=f"""
-Seu plano foi ativado com sucesso!
+Seu pagamento foi aprovado!
 
 Usuário: {username}
 Senha: {password}
@@ -163,9 +163,8 @@ O arquivo EHI está anexado.
 
     return {"status": "plan_created"}
 
-
 # ------------------------------------------------------
-# TESTE GRÁTIS (LOGADO)
+# TESTE GRÁTIS (SOMENTE LOGADO)
 # ------------------------------------------------------
 @router.post("/trial")
 def create_trial(
@@ -173,12 +172,12 @@ def create_trial(
     db: Session = Depends(get_db)
 ):
     if user.trial_used:
-        raise HTTPException(400, "Teste grátis já utilizado")
+        raise HTTPException(status_code=400, detail="Teste grátis já utilizado")
 
     plan_days = 3
     expires = datetime.utcnow() + timedelta(days=plan_days)
 
-    username = f"trial{user.id}{int(datetime.utcnow().timestamp())%1000}"
+    username = f"trial{user.id}{int(datetime.utcnow().timestamp()) % 1000}"
     password = os.urandom(4).hex()
 
     create_ssh_user(username, password, plan_days)
@@ -212,11 +211,10 @@ Validade: {expires.strftime('%d/%m/%Y')}
         attachment_path=ehi_path
     )
 
-    return {"message": "Teste grátis criado"}
-
+    return {"message": "Teste grátis ativado com sucesso"}
 
 # ------------------------------------------------------
-# MEUS PLANOS
+# MEUS PLANOS (JWT)
 # ------------------------------------------------------
 @router.get("/get-plans")
 def get_plans(
