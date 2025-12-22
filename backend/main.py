@@ -28,7 +28,7 @@ app = FastAPI()
 app.mount("/js", StaticFiles(directory="js"), name="js")
 app.mount("/imagens", StaticFiles(directory="imagens"), name="imagens")
 
-# Rotas de pagamento (PIX, webhook, planos)
+# Rotas PIX / pagamento
 app.include_router(payment_router)
 
 # ------------------------------------------------------
@@ -44,7 +44,7 @@ def get_db():
         db.close()
 
 # ------------------------------------------------------
-# JWT UTILS
+# JWT
 # ------------------------------------------------------
 def create_token(user_id: int):
     payload = {
@@ -104,12 +104,14 @@ def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
 
-    # Log de login
+    # Log de login (SEM timestamp extra)
     log = LoginLog(
         email=user.email,
         ip_address=request.client.host,
-        user_agent=request.headers.get("user-agent", "unknown")
+        user_agent=request.headers.get("user-agent", "unknown"),
+        created_at=datetime.utcnow()
     )
+
     db.add(log)
     db.commit()
 
@@ -117,23 +119,26 @@ def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
     return {"token": token}
 
 # ------------------------------------------------------
-# GET PLANS (MEUS PLANOS)
+# MEUS PLANOS
 # ------------------------------------------------------
 @app.get("/api/get-plans")
 def get_plans(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    plans = db.query(VPNAccount).filter(
-        VPNAccount.owner_id == user.id
-    ).all()
+    plans = (
+        db.query(VPNAccount)
+        .filter(VPNAccount.owner_id == user.id)
+        .order_by(VPNAccount.expires_at.desc())
+        .all()
+    )
 
     return [
         {
             "id": p.id,
             "plan": p.plan,
             "username": p.username,
-            "expires": p.expires_at
+            "expires": p.expires_at.isoformat()
         }
         for p in plans
     ]
