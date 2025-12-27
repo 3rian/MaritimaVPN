@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 
@@ -19,16 +20,19 @@ SECRET_KEY = os.getenv("JWT_SECRET", "MUDE-ISSO-PARA-UM-SEGREDO-GIGANTE")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EHI_DIR = os.path.join(BASE_DIR, "ehis")
+
+os.makedirs(EHI_DIR, exist_ok=True)
+
 # ------------------------------------------------------
 # APP
 # ------------------------------------------------------
 app = FastAPI()
 
-# Arquivos estáticos
 app.mount("/js", StaticFiles(directory="js"), name="js")
 app.mount("/imagens", StaticFiles(directory="imagens"), name="imagens")
 
-# Rotas PIX / pagamento
 app.include_router(payment_router)
 
 # ------------------------------------------------------
@@ -66,7 +70,7 @@ def get_current_user(
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = int(payload["sub"])
     except JWTError:
-        raise HTTPException(status_code=401, detail="Token expirado ou inválido")
+        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -104,7 +108,6 @@ def login(data: UserLogin, request: Request, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
 
-    # Log de login (SEM timestamp extra)
     log = LoginLog(
         email=user.email,
         ip_address=request.client.host,
@@ -126,19 +129,50 @@ def get_plans(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    plans = (
-        db.query(VPNAccount)
-        .filter(VPNAccount.owner_id == user.id)
-        .order_by(VPNAccount.expires_at.desc())
-        .all()
-    )
+    plans = db.query(VPNAccount).filter(
+        VPNAccount.owner_id == user.id
+    ).all()
 
     return [
         {
             "id": p.id,
             "plan": p.plan,
             "username": p.username,
-            "expires": p.expires_at.isoformat()
+            "expires": p.expires_at
         }
         for p in plans
     ]
+
+# ------------------------------------------------------
+# DOWNLOAD EHI (CORRETO)
+# ------------------------------------------------------
+@app.get("/api/download-ehi/{plan_id}")
+def download_ehi(
+    plan_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(VPNAccount).filter(
+        VPNAccount.id == plan_id,
+        VPNAccount.owner_id == user.id
+    ).first()
+
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+
+    if not plan.ehi_file:
+        raise HTTPException(
+            status_code=400,
+            detail="EHI ainda não gerado. Aguarde a confirmação do pagamento."
+        )
+
+    file_path = os.path.join(EHI_DIR, plan.ehi_file)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Arquivo EHI não encontrado")
+
+    return FileResponse(
+        path=file_path,
+        filename=plan.ehi_file,
+        media_type="application/octet-stream"
+    )
